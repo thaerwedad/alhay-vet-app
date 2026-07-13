@@ -295,7 +295,7 @@ if uploaded_file is not None:
 elif val > r["max"]: status[param] = "HIGH"
 else: status[param] = "NORMAL"            
         # خوارزمية التفسير الإكلينيكي الذكي لعيادة الحي (حسب الفصيلة ثدييات أم طيور)
-        if species == "Poultry (دواجن/دجاج)":
+    if species == "Poultry (دواجن/دجاج)":
             if status.get("RBC") == "LOW" or status.get("PCV") == "LOW":
                 insights.append("• فقر دم في الدواجن (Avian Anemia): قد يشير إلى فيروس فقر دم الدجاج (CAV)، أو إصابة طفيلية حادة كـ (الكوكسيديا الشديدة أو الفاش الأحمر).")
             if status.get("WBC") == "HIGH":
