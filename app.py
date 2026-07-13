@@ -107,7 +107,7 @@ if uploaded_file is not None:
         else:
             if status.get("RBC") == "LOW" or status.get("Hb") == "LOW":
                 insig
-[7/13/2026 11:29 PM] ثائر وداد: hts.append("- Anemia Indicated: Low red blood cell parameters.")
+hts.append("- Anemia Indicated: Low red blood cell parameters.")
             elif status.get("RBC") == "HIGH" or status.get("PCV") == "HIGH":
                 insights.append("- Suspect Dehydration: Elevated erythron parameters.")
 
