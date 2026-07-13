@@ -194,7 +194,7 @@ if uploaded_file is not None:
         for param, val in final_data.items():
             r = ranges[param]
             if val < r["min"]: status[param] = "LOW"
-[7/13/2026 10:11 PM] ثائر وداد: import streamlit as st
+import streamlit as st
 import cv2
 import numpy as np
 import re
@@ -292,7 +292,7 @@ if uploaded_file is not None:
         for param, val in final_data.items():
             r = ranges[param]
             if val < r["min"]: status[param] = "LOW"
-[7/13/2026 10:11 PM] ثائر وداد: elif val > r["max"]: status[param] = "HIGH"
+elif val > r["max"]: status[param] = "HIGH"
             else: status[param] = "NORMAL"
             
         # خوارزمية التفسير الإكلينيكي الذكي لعيادة الحي (حسب الفصيلة ثدييات أم طيور)
