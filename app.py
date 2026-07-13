@@ -1,4 +1,4 @@
-[7/13/2026 11:24 PM] ثائر وداد: import streamlit as st
+import streamlit as st
 import cv2
 import numpy as np
 import re
@@ -11,30 +11,30 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 import io
 
-# إعداد قارئ النصوص الذكي من الصورة
+# Initialize OCR Reader
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['en'])
 
 reader = load_ocr()
 
-# قاعدة بيانات النطاقات الطبيعية الكاملة والمحدثة
+# Reference ranges database
 VET_REFERENCE_RANGES = {
-    "Dog (كلب)": {
+    "Dog": {
         "RBC": {"min": 5.5, "max": 8.5, "unit": "x10^6/µL"},
         "Hb": {"min": 12.0, "max": 18.0, "unit": "g/dL"},
         "PCV": {"min": 37.0, "max": 55.0, "unit": "%"},
         "WBC": {"min": 6.0, "max": 17.0, "unit": "x10^3/µL"},
         "PLT": {"min": 200, "max": 500, "unit": "x10^3/µL"}
     },
-    "Cat (قط)": {
+    "Cat": {
         "RBC": {"min": 6.0, "max": 10.0, "unit": "x10^6/µL"},
         "Hb": {"min": 8.0, "max": 15.0, "unit": "g/dL"},
         "PCV": {"min": 24.0, "max": 45.0, "unit": "%"},
         "WBC": {"min": 5.5, "max": 19.5, "unit": "x10^3/µL"},
         "PLT": {"min": 300, "max": 800, "unit": "x10^3/µL"}
     },
-    "Poultry (دواجن/دجاج)": {
+    "Poultry": {
         "RBC": {"min": 2.5, "max": 3.5, "unit": "x10^6/µL"},
         "Hb": {"min": 7.0, "max": 13.0, "unit": "g/dL"},
         "PCV": {"min": 22.0, "max": 35.0, "unit": "%"},
@@ -43,18 +43,17 @@ VET_REFERENCE_RANGES = {
     }
 }
 
-# إعدادات واجهة الموبايل عبر Streamlit
-st.set_page_config(page_title="عيادة الحي البيطرية", page_icon="🐾")
-st.title("🐾 عيادة الحي البيطرية")
-st.subheader("نظام المسح الضوئي والتفسير التلقائي لـ CBC")
+# App UI Layout
+st.set_page_config(page_title="Al-Hay Veterinary Clinic", page_icon="🐾")
+st.title("🐾 Al-Hay Veterinary Clinic")
+st.subheader("Automated CBC Interpretation System")
 
-# القائمة الجانبية
-st.sidebar.header("📋 بيانات المراجع والحالة")
-owner_name = st.sidebar.text_input("اسم المربي:", "عميل محترم")
-animal_id = st.sidebar.text_input("اسم/رقم الحيوان:", "غير محدد")
-species = st.sidebar.selectbox("الفصيلة المستهدفة:", list(VET_REFERENCE_RANGES.keys()))
+st.sidebar.header("📋 Case Information")
+owner_name = st.sidebar.text_input("Owner Name:", "Client")
+animal_id = st.sidebar.text_input("Animal ID:", "None")
+species = st.sidebar.selectbox("Species:", list(VET_REFERENCE_RANGES.keys()))
 
-uploaded_file = st.camera_input("التقط صورة واضحة لورقة التحليل")
+uploaded_file = st.camera_input("Capture CBC Report Image")
 
 def extract_param_value(text_list, param_name):
     for i, text in enumerate(text_list):
@@ -69,7 +68,7 @@ def extract_param_value(text_list, param_name):
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
 
-    with st.spinner("جاري معالجة الصورة وقراءة الأرقام..."):
+    with st.spinner("Processing image and scanning data..."):
         img_np = np.array(image)
         ocr_results = reader.readtext(img_np, detail=0)
 
@@ -78,16 +77,16 @@ if uploaded_file is not None:
         for param in ranges.keys():
             extracted_data[param] = extract_param_value(ocr_results, param)
 
-    st.success("تمت قراءة البيانات بنجاح! راجع القيم:")
+    st.success("Data read successfully! Please verify values below:")
 
     final_data = {}
     col1, col2 = st.columns(2)
     for idx, param in enumerate(ranges.keys()):
         current_val = extracted_data[param] if extracted_data[param] is not None else 0.0
         with col1 if idx % 2 == 0 else col2:
-            final_data[param] = st.number_input(f"معامل {param}:", value=float(current_val))
+            final_data[param] = st.number_input(f"{param}:", value=float(current_val))
 
-    if st.button("🧬 تشغيل التفسير وتجهيز تقرير الطباعة"):
+    if st.button("🧬 Run Clinical Interpretation & Generate PDF"):
         status = {}
         insights = []
 
@@ -100,31 +99,31 @@ if uploaded_file is not None:
             else:
                 status[param] = "NORMAL"
 
-        if species == "Poultry (دواجن/دجاج)":
+        if species == "Poultry":
             if status.get("RBC") == "LOW" or status.get("PCV") == "LOW":
-                insights.append("• فقر دم في الدواجن: قد يشير إلى CAV، أو طفيليات حادة كالكوكسيديا أو الفاش.")
+                insights.append("- Suspect Avian Anemia (Check for CAV, Coccidiosis, or Red Mites).")
             if status.get("WBC") == "HIGH":
-                insights.append("• ارتفاع خلايا الدم البيضاء: استجابة لعدوى بكتيرية (كوليرا الطيور/سالمونيلا
-[7/13/2026 11:24 PM] ثائر وداد: ) أو التهاب.")
+                insights.append("- Leukocytosis: Severe immune response to bacterial infection (Fowl Cholera/Salmonella) or tissue inflammation.")
         else:
             if status.get("RBC") == "LOW" or status.get("Hb") == "LOW":
-                insights.append("• مؤشر فقر دم (Anemia): انخفاض السلسلة الحمراء.")
+                insig
+[7/13/2026 11:29 PM] ثائر وداد: hts.append("- Anemia Indicated: Low red blood cell parameters.")
             elif status.get("RBC") == "HIGH" or status.get("PCV") == "HIGH":
-                insights.append("• اشتباه تجفاف (Dehydration): ارتفاع الكريات الحمراء نتيجة فقد السوائل.")
+                insights.append("- Suspect Dehydration: Elevated erythron parameters.")
 
             if status.get("WBC") == "HIGH":
-                insights.append("• استجابة التهابية (Leukocytosis): عدوى بكتيرية أو التهاب نسيجي.")
+                insights.append("- Leukocytosis: Active inflammatory process or bacterial infection.")
             elif status.get("WBC") == "LOW":
-                insights.append("• نقص مناعي حاد (Leukopenia): خطر إصابة فيروسية حادة تستدعي العزل الفوري.")
+                insights.append("- Leukopenia: High risk of viral infection (Parvovirus/Panleukopenia). Isolation recommended.")
 
             if status.get("PLT") == "LOW":
-                insights.append("• نقص صفائح (Thrombocytopenia): خطر نزف، قد يرجع لأمراض القراد كالإيرليخيا.")
+                insights.append("- Thrombocytopenia: Bleeding risk. Check for tick-borne diseases (Ehrlichia).")
 
         if not insights:
-            insights.append("• جميع المؤشرات تقع ضمن الحدود الطبيعية.")
+            insights.append("- All checked parameters fall within normal reference intervals.")
 
         st.write("---")
-        st.markdown("### 📄 المعاينة قبل الطباعة (Al-Hay Clinic)")
+        st.markdown("### 📄 Preview (Al-Hay Clinic)")
         for ins in insights:
             st.write(ins)
 
@@ -147,7 +146,7 @@ if uploaded_file is not None:
             r = ranges[p]
             table_data.append([p, str(v), r['unit'], status[p], f"{r['min']} - {r['max']}"])
 
-        t = Table(table_data, colWidths=[90, 95, 90, 85, 120])
+        t = Table(table_data, colWidths=[100, 90, 90, 80, 130])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#c0392b')),
             ('TEXTCOLOR', (0,0), (-1,0), colors.white),
@@ -167,7 +166,7 @@ if uploaded_file is not None:
         pdf_data = pdf_buffer.getvalue()
 
         st.download_button(
-            label="⬇️ تحميل ملف PDF جاهز للطباعة بدقة عالية",
+            label="⬇️ Download High-Quality Printable PDF",
             data=pdf_data,
             file_name=f"AlHay_Clinic_Report_{animal_id}.pdf",
             mime="application/pdf"
