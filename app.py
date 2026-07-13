@@ -293,7 +293,7 @@ if uploaded_file is not None:
             r = ranges[param]
             if val < r["min"]: status[param] = "LOW"
 elif val > r["max"]: status[param] = "HIGH"
-            else: status[param] = "NORMAL"
+        else: status[param] = "NORMAL"
             
         # خوارزمية التفسير الإكلينيكي الذكي لعيادة الحي (حسب الفصيلة ثدييات أم طيور)
         if species == "Poultry (دواجن/دجاج)":
