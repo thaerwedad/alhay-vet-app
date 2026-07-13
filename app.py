@@ -50,8 +50,7 @@ owner_name = st.sidebar.text_input("Owner Name:", "Client")
 animal_id = st.sidebar.text_input("Animal ID:", "None")
 species = st.sidebar.selectbox("Species:", list(VET_REFERENCE_RANGES.keys()))
 
-# الميزة الجديدة: خيار هجين يتيح الرفع أو فتح الكاميرا في نفس الوقت
-uploaded_file = st.file_uploader("📸 Take a Photo or Upload CBC Image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.camera_input("Capture CBC Report Image")
 
 def extract_param_value(text_list, param_name):
     for i, text in enumerate(text_list):
@@ -65,7 +64,6 @@ def extract_param_value(text_list, param_name):
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Selected CBC Report", use_container_width=True)
     
     with st.spinner("Processing image and scanning data..."):
         img_np = np.array(image)
