@@ -50,7 +50,8 @@ owner_name = st.sidebar.text_input("Owner Name:", "Client")
 animal_id = st.sidebar.text_input("Animal ID:", "None")
 species = st.sidebar.selectbox("Species:", list(VET_REFERENCE_RANGES.keys()))
 
-uploaded_file = st.camera_input("Capture CBC Report Image")
+# تفعيل زر استيراد الصور بدلاً من الكاميرا الافتراضية
+uploaded_file = st.file_uploader("Upload CBC Report Image or Take a Photo", type=["jpg", "jpeg", "png"])
 
 def extract_param_value(text_list, param_name):
     for i, text in enumerate(text_list):
@@ -64,6 +65,7 @@ def extract_param_value(text_list, param_name):
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded CBC Report", use_container_width=True)
     
     with st.spinner("Processing image and scanning data..."):
         img_np = np.array(image)
@@ -167,3 +169,4 @@ if uploaded_file is not None:
             file_name=f"AlHay_Clinic_Report_{animal_id}.pdf",
             mime="application/pdf"
         )
+        
