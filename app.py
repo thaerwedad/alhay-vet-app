@@ -62,11 +62,20 @@ species = st.sidebar.selectbox(
     list(VET_REFERENCE_RANGES.keys())
 )
 
-# زر موحد لالتقاط صورة بالكاميرا أو اختيارها من الاستوديو
-uploaded_file = st.file_uploader(
-    "📸 Take a Photo or Upload CBC Image", 
-    type=["jpg", "jpeg", "png"]
+# ميزة اختيار طريقة الإدخال لحل مشكلة الكاميرا
+input_method = st.radio(
+    "Choose Input Method / اختر طريقة الإدخال:",
+    ["📸 Use Camera (استخدام الكاميرا)", "📁 Upload from Gallery (رفع من الألبوم)"]
 )
+
+uploaded_file = None
+if "Camera" in input_method:
+    uploaded_file = st.camera_input("Capture CBC Report Image")
+else:
+    uploaded_file = st.file_uploader(
+        "Upload CBC Image", 
+        type=["jpg", "jpeg", "png"]
+    )
 
 def extract_param_value(text_list, param_name):
     for i, text in enumerate(text_list):
