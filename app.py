@@ -183,3 +183,91 @@ if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
     insights_en = []  # تدرج في ملف الـ PDF بالإنجليزية لتجنب تشوه الحروف
     
     for param, val in final_data.items():
+        r = ranges[param]
+        if val < r["min"]:
+            status[param] = "LOW"
+        elif val > r["max"]:
+            status[param] = "HIGH"
+        else:
+            status[param] = "NORMAL"
+            
+    # تطبيق الگايد الطبي بالكامل
+    # RBC
+    if status.get("RBC") == "HIGH":
+        insights_ar.append("• ارتفاع RBC: قد يشير إلى الجفاف، الاستسقاء، أو أمراض الكلى.")
+        insights_en.append("- High RBC: Dehydration, Polycythemia or renal issues suspected.")
+    elif status.get("RBC") == "LOW":
+        insights_ar.append("• انخفاض RBC: يشير إلى فقر الدم (Anemia)؛ قد يكون بسبب نقص B12، نقص الحديد، أو إصابة مزمنة.")
+        insights_en.append("- Low RBC: Indicates Anemia (B12 deficiency, Iron deficiency, or chronic disease).")
+        
+    # Hb
+    if status.get("Hb") == "HIGH":
+        insights_ar.append("• ارتفاع Hb: قد يشير إلى وجود جفاف، سموم الكبد، أو تضخم في الكلى.")
+        insights_en.append("- High Hb: Dehydration or hepatic/renal issues suspected.")
+    elif status.get("Hb") == "LOW":
+        insights_ar.append("• انخفاض Hb: يشير إلى فقر الدم (Anemia) الناتج عن سوء التغذية أو نقص الحديد في الجسم.")
+        insights_en.append("- Low Hb: Microcytic/Normocytic anemia (malnutrition or iron deficiency).")
+        
+    # MCV & MCHC
+    if final_data.get("MCV", 0) > 0 and status.get("MCV") == "LOW":
+        insights_ar.append("• انخفاض MCV: مؤشر على نقص الحديد في الجسم أو تسمم بالرصاص.")
+        insights_en.append("- Low MCV: Microcytosis (highly indicative of Iron deficiency or Lead poisoning).")
+    if status.get("MCV") == "HIGH" and status.get("MCHC") == "LOW":
+        insights_ar.append("• ارتفاع MCV مع انخفاض MCHC: يشير سريرياً إلى احتمالية الإصابة بالأنيميا الخبيثة.")
+        insights_en.append("- High MCV + Low MCHC: Macrocytic Hypochromic Anemia suspected (Pernicious Anemia).")
+    elif status.get("MCHC") == "LOW":
+        insights_ar.append("• انخفاض MCHC: يشير إلى أنيميا نقص الحديد.")
+        insights_en.append("- Low MCHC: Hypochromic anemia (Iron deficiency).")
+
+    # PLT
+    if status.get("PLT") == "HIGH":
+        insights_ar.append("• ارتفاع PLT: قد يشير إلى ورم دموي، التهابات نشطة، أو نزيف حاد.")
+        insights_en.append("- High PLT: Thrombocytosis (inflammation, acute hemorrhage, or bone marrow response).")
+    elif status.get("PLT") == "LOW":
+        insights_ar.append("• انخفاض PLT: يشير إلى خطر النزيف، نقص اليود، أو الإصابة بأمراض مناعية.")
+        insights_en.append("- Low PLT: Thrombocytopenia (increased bleeding risk, viral or immune-mediated).")
+
+    # WBC
+    if status.get("WBC") == "HIGH":
+        if final_data.get("WBC", 0) > (ranges["WBC"]["max"] * 2):
+            insights_ar.append("• ارتفاع شديد جداً في WBC: مؤشر قوي يستدعي فحص خطر الإصابة سرطان الدم (Leukemia).")
+            insights_en.append("- Critical High WBC: Strong leukocytosis (highly raises Leukemia/severe sepsis suspicion).")
+        else:
+            insights_ar.append("• ارتفاع WBC: يشير إلى وجود التهابات في الجسم أو عدوى بكتيرية.")
+            insights_en.append("- High WBC: Leukocytosis (indicates systemic inflammation or bacterial infection).")
+    elif status.get("WBC") == "LOW":
+        insights_ar.append("• انخفاض WBC: يشير إلى ضعف المناعة العام أو التعرض لعدوى فيروسية.")
+        insights_en.append("- Low WBC: Leukopenia (viral infection or immunosuppression risks).")
+
+    # Neutrophils
+    if status.get("Neutrophils") == "HIGH":
+        insights_ar.append("• ارتفاع Neutrophils: قد يرجع إلى التهاب بكتيري، جهد بدني شاق، أو تعرض الأنسجة لإصابات.")
+        insights_en.append("- High Neutrophils: Bacterial infection, tissue damage, or physiological stress.")
+    elif status.get("Neutrophils") == "LOW":
+        insights_ar.append("• انخفاض Neutrophils: قد يشير إلى عدوى فيروسية، تسمم دموي، أو تسمم دوائي.")
+        insights_en.append("- Low Neutrophils: Viral infection, severe toxemia, or drug-induced.")
+
+    # Lymphocytes
+    if status.get("Lymphocytes") == "HIGH":
+        insights_ar.append("• ارتفاع Lymphocytes: مؤشر لعدوى فيروسية أو التهاب الكبد.")
+        insights_en.append("- High Lymphocytes: Viral infection or chronic antigenic stimulation.")
+    elif status.get("Lymphocytes") == "LOW":
+        insights_ar.append("• انخفاض Lymphocytes: يشير إلى ضعف الجهاز المناعي أو تأثير علاج الكورتيزون.")
+        insights_en.append("- Low Lymphocytes: Stress leukogram or corticosteroid effect.")
+
+    # Eosinophils, Basophils, Monocytes
+    if status.get("Eosinophils") == "HIGH":
+        insights_ar.append("• ارتفاع Eosinophils: دليل على رد فعل تحسسي أو إصابة بالطفيليات.")
+        insights_en.append("- High Eosinophils: Allergic response or parasitic infestation.")
+    if status.get("Basophils") == "HIGH":
+        insights_ar.append("• ارتفاع Basophils: يشير إلى حالات الحساسية المفرطة.")
+        insights_en.append("- High Basophils: Hypersensitivity reactions.")
+    if status.get("Monocytes") == "HIGH":
+        insights_ar.append("• ارتفاع Monocytes: يشير إلى وجود التهاب مزمن في الجسم.")
+        insights_en.append("- High Monocytes: Chronic inflammation.")
+
+    if not insights_ar:
+        insights_ar.append("• كافة المؤشرات تقع ضمن الحدود الطبيعية للفصيلة المحددة.")
+        insights_en.append("- All parameters are within normal reference ranges.")
+
+    st.write("---")
