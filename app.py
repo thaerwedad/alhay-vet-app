@@ -4,28 +4,41 @@ import numpy as np
 import re
 import datetime
 from PIL import Image
-import easyocr
+import pytesseract
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import (
-    SimpleDocTemplate, 
-    Paragraph, 
-    Spacer, 
-    Table, 
-    TableStyle
-)
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import arabic_reshaper
+from bidi.algorithm import get_display
 import io
+import urllib.request
+import os
 
-# تحميل قارئ النصوص مع إجبار النظام على استخدام المعالج العادي لمنع الانهيار
+# إعداد خط اللغة العربية لتفادي المربعات السوداء في الـ PDF
+FONT_PATH = "Amiri-Regular.ttf"
 @st.cache_resource
-def load_ocr():
-    return easyocr.Reader(['en'], gpu=False)
+def download_arabic_font():
+    if not os.path.exists(FONT_PATH):
+        font_url = "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf"
+        try:
+            urllib.request.urlretrieve(font_url, FONT_PATH)
+            pdfmetrics.registerFont(TTFont('Amiri', FONT_PATH))
+        except Exception as e:
+            st.warning(f"Failed to download Arabic font. Fallback to English in PDF. Error: {e}")
 
-try:
-    reader = load_ocr()
-except Exception as e:
-    st.error(f"Error initializing OCR Reader: {e}")
+download_arabic_font()
+
+# دالة ذكية لتجهيز النصوص العربية للطباعة في الـ PDF
+def format_arabic(text):
+    try:
+        reshaped_text = arabic_reshaper.reshape(text)
+        bidi_text = get_display(reshaped_text)
+        return bidi_text
+    except Exception:
+        return text
 
 # المسميات البديلة لضمان دقة القراءة التلقائية
 PARAM_ALIASES = {
@@ -103,21 +116,20 @@ owner_name = st.sidebar.text_input("Owner Name / اسم المربّي:", "Clien
 animal_id = st.sidebar.text_input("Animal ID / رقم الحيوان:", "None")
 species = st.sidebar.selectbox("Species / الفصيلة:", list(VET_REFERENCE_RANGES.keys()))
 
-def extract_param_value_robust(text_list, param_name):
+def extract_param_value_robust(text_lines, param_name):
     aliases = PARAM_ALIASES.get(param_name, [param_name])
-    for i, text in enumerate(text_list):
-        cleaned_text = text.replace(':', '').replace('-', '').strip()
-        if any(re.search(r'\b' + re.escape(alias) + r'\b', cleaned_text, re.IGNORECASE) for alias in aliases):
-            for j in range(i+1, min(i+5, len(text_list))):
-                next_text = text_list[j].replace(' ', '').replace(',', '.')
-                match = re.search(r'[-+]?\d*\.\d+|\d+', next_text)
-                if match:
-                    try:
-                        val = float(match.group())
-                        if val > 0:
-                            return val
-                    except ValueError:
-                        continue
+    for i, line in enumerate(text_lines):
+        if any(re.search(r'\b' + re.escape(alias) + r'\b', line, re.IGNORECASE) for alias in aliases):
+            # البحث عن أي رقم عشري أو صحيح داخل السطر أو الأسطر الثلاثة التالية
+            for offset in range(0, 4):
+                if i + offset < len(text_lines):
+                    target_line = text_lines[i + offset]
+                    matches = re.findall(r'\b\d+(?:\.\d+)?\b', target_line)
+                    if matches:
+                        for m in matches:
+                            val = float(m)
+                            if val > 0:
+                                return val
     return None
 
 # تهيئة حقول البيانات المستخرجة
@@ -125,7 +137,6 @@ extracted_data = {param: 0.0 for param in VET_REFERENCE_RANGES[species].keys()}
 
 st.markdown("### 📥 Select Input Method / اختر طريقة الإدخال:")
 
-# التبويبات لعرض الخيارين معاً وبشكل آمن ومستقل
 tab_gallery, tab_camera = st.tabs([
     "📁 Upload from Gallery (رفع من الاستوديو)", 
     "📸 Use Live Camera (استخدام الكاميرا)"
@@ -150,18 +161,22 @@ with tab_camera:
     if camera_file is not None:
         uploaded_file = camera_file
 
-# معالجة الصورة في حال تم الرفع أو الالتقاط
+# معالجة الصورة باستخدام Tesseract OCR عالي الكفاءة
 if uploaded_file is not None:
     try:
         image = Image.open(uploaded_file)
         st.image(image, caption="Active Image for Analysis", width=350)
         
         with st.spinner("Processing image and scanning data..."):
+            # تحسين جودة الصورة لزيادة دقة التعرف على الأرقام
             img_np = np.array(image)
-            ocr_results = reader.readtext(img_np, detail=0)
+            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+            ocr_text = pytesseract.image_to_string(gray, config='--psm 6')
+            ocr_lines = [line.strip() for line in ocr_text.split('\n') if line.strip()]
+            
             ranges = VET_REFERENCE_RANGES[species]
             for param in ranges.keys():
-                val = extract_param_value_robust(ocr_results, param)
+                val = extract_param_value_robust(ocr_lines, param)
                 if val is not None:
                     extracted_data[param] = val
                 else:
@@ -187,8 +202,8 @@ for idx, param in enumerate(ranges.keys()):
 
 if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
     status = {}
-    insights_ar = []  # للظهور على الشاشة باللغة العربية
-    insights_en = []  # للكتابة داخل الـ PDF بالإنجليزية لتجنب المربعات السوداء
+    insights_ar = []  # تظهر على الشاشة بالعربية
+    insights_pdf_ar = []  # سيتم معالجتها بالخط العربي المعتمد Amiri داخل الـ PDF
     
     for param, val in final_data.items():
         r = ranges[param]
@@ -199,91 +214,91 @@ if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
         else:
             status[param] = "NORMAL"
             
-    # التحليلات الطبية الذكية
+    # تطبيق التحليلات والجايد الطبي العربي والترجمة الخاصة بـ PDF
     # RBC
     if status.get("RBC") == "HIGH":
         insights_ar.append("• ارتفاع RBC: قد يشير إلى الجفاف، الاستسقاء، أو أمراض الكلى.")
-        insights_en.append("- High RBC: Dehydration, Polycythemia or renal issues suspected.")
+        insights_pdf_ar.append("• ارتفاع RBC: قد يشير إلى الجفاف، الاستسقاء، أو أمراض الكلى.")
     elif status.get("RBC") == "LOW":
         insights_ar.append("• انخفاض RBC: يشير إلى فقر الدم (Anemia)؛ قد يكون بسبب نقص B12، نقص الحديد، أو إصابة مزمنة.")
-        insights_en.append("- Low RBC: Indicates Anemia (B12 deficiency, Iron deficiency, or chronic disease).")
+        insights_pdf_ar.append("• انخفاض RBC: يشير إلى فقر الدم (Anemia)؛ قد يكون بسبب نقص B12، نقص الحديد، أو إصابة مزمنة.")
         
     # Hb
     if status.get("Hb") == "HIGH":
         insights_ar.append("• ارتفاع Hb: قد يشير إلى وجود جفاف، سموم الكبد، أو تضخم في الكلى.")
-        insights_en.append("- High Hb: Dehydration or hepatic/renal issues suspected.")
+        insights_pdf_ar.append("• ارتفاع Hb: قد يشير إلى وجود جفاف، سموم الكبد، أو تضخم في الكلى.")
     elif status.get("Hb") == "LOW":
         insights_ar.append("• انخفاض Hb: يشير إلى فقر الدم (Anemia) الناتج عن سوء التغذية أو نقص الحديد في الجسم.")
-        insights_en.append("- Low Hb: Microcytic/Normocytic anemia (malnutrition or iron deficiency).")
+        insights_pdf_ar.append("• انخفاض Hb: يشير إلى فقر الدم (Anemia) الناتج عن سوء التغذية أو نقص الحديد في الجسم.")
         
     # MCV & MCHC
     if final_data.get("MCV", 0) > 0 and status.get("MCV") == "LOW":
         insights_ar.append("• انخفاض MCV: مؤشر على نقص الحديد في الجسم أو تسمم بالرصاص.")
-        insights_en.append("- Low MCV: Microcytosis (highly indicative of Iron deficiency or Lead poisoning).")
+        insights_pdf_ar.append("• انخفاض MCV: مؤشر على نقص الحديد في الجسم أو تسمم بالرصاص.")
     if status.get("MCV") == "HIGH" and status.get("MCHC") == "LOW":
         insights_ar.append("• ارتفاع MCV مع انخفاض MCHC: يشير سريرياً إلى احتمالية الإصابة بالأنيميا الخبيثة.")
-        insights_en.append("- High MCV + Low MCHC: Macrocytic Hypochromic Anemia suspected (Pernicious Anemia).")
+        insights_pdf_ar.append("• ارتفاع MCV مع انخفاض MCHC: يشير سريرياً إلى احتمالية الإصابة بالأنيميا الخبيثة.")
     elif status.get("MCHC") == "LOW":
         insights_ar.append("• انخفاض MCHC: يشير إلى أنيميا نقص الحديد.")
-        insights_en.append("- Low MCHC: Hypochromic anemia (Iron deficiency).")
+        insights_pdf_ar.append("• انخفاض MCHC: يشير إلى أنيميا نقص الحديد.")
 
     # PLT
     if status.get("PLT") == "HIGH":
         insights_ar.append("• ارتفاع PLT: قد يشير إلى ورم دموي، التهابات نشطة، أو نزيف حاد.")
-        insights_en.append("- High PLT: Thrombocytosis (inflammation, acute hemorrhage, or bone marrow response).")
+        insights_pdf_ar.append("• ارتفاع PLT: قد يشير إلى ورم دموي، التهابات نشطة، أو نزيف حاد.")
     elif status.get("PLT") == "LOW":
         insights_ar.append("• انخفاض PLT: يشير إلى خطر النزيف، نقص اليود، أو الإصابة بأمراض مناعية.")
-        insights_en.append("- Low PLT: Thrombocytopenia (increased bleeding risk, viral or immune-mediated).")
+        insights_pdf_ar.append("• انخفاض PLT: يشير إلى خطر النزيف، نقص اليود، أو الإصابة بأمراض مناعية.")
 
     # WBC
     if status.get("WBC") == "HIGH":
         if final_data.get("WBC", 0) > (ranges["WBC"]["max"] * 2):
             insights_ar.append("• ارتفاع شديد جداً في WBC: مؤشر قوي يستدعي فحص خطر الإصابة سرطان الدم (Leukemia).")
-            insights_en.append("- Critical High WBC: Strong leukocytosis (highly raises Leukemia/severe sepsis suspicion).")
+            insights_pdf_ar.append("• ارتفاع شديد جداً في WBC: مؤشر قوي يستدعي فحص خطر الإصابة سرطان الدم (Leukemia).")
         else:
             insights_ar.append("• ارتفاع WBC: يشير إلى وجود التهابات في الجسم أو عدوى بكتيرية.")
-            insights_en.append("- High WBC: Leukocytosis (indicates systemic inflammation or bacterial infection).")
+            insights_pdf_ar.append("• ارتفاع WBC: يشير إلى وجود التهابات في الجسم أو عدوى بكتيرية.")
     elif status.get("WBC") == "LOW":
         insights_ar.append("• انخفاض WBC: يشير إلى ضعف المناعة العام أو التعرض لعدوى فيروسية.")
-        insights_en.append("- Low WBC: Leukopenia (viral infection or immunosuppression risks).")
+        insights_pdf_ar.append("• انخفاض WBC: يشير إلى ضعف المناعة العام أو التعرض لعدوى فيروسية.")
 
     # Neutrophils
     if status.get("Neutrophils") == "HIGH":
         insights_ar.append("• ارتفاع Neutrophils: قد يرجع إلى التهاب بكتيري، جهد بدني شاق، أو تعرض الأنسجة لإصابات.")
-        insights_en.append("- High Neutrophils: Bacterial infection, tissue damage, or physiological stress.")
+        insights_pdf_ar.append("• ارتفاع Neutrophils: قد يرجع إلى التهاب بكتيري، جهد بدني شاق، أو تعرض الأنسجة لإصابات.")
     elif status.get("Neutrophils") == "LOW":
         insights_ar.append("• انخفاض Neutrophils: قد يشير إلى عدوى فيروسية، تسمم دموي، أو تسمم دوائي.")
-        insights_en.append("- Low Neutrophils: Viral infection, severe toxemia, or drug-induced.")
+        insights_pdf_ar.append("• انخفاض Neutrophils: قد يشير إلى عدوى فيروسية، تسمم دموي، أو تسمم دوائي.")
 
     # Lymphocytes
     if status.get("Lymphocytes") == "HIGH":
         insights_ar.append("• ارتفاع Lymphocytes: مؤشر لعدوى فيروسية أو التهاب الكبد.")
-        insights_en.append("- High Lymphocytes: Viral infection or chronic antigenic stimulation.")
+        insights_pdf_ar.append("• ارتفاع Lymphocytes: مؤشر لعدوى فيروسية أو التهاب الكبد.")
     elif status.get("Lymphocytes") == "LOW":
         insights_ar.append("• انخفاض Lymphocytes: يشير إلى ضعف الجهاز المناعي أو تأثير علاج الكورتيزون.")
-        insights_en.append("- Low Lymphocytes: Stress leukogram or corticosteroid effect.")
+        insights_pdf_ar.append("• انخفاض Lymphocytes: يشير إلى ضعف الجهاز المناعي أو تأثير علاج الكورتيزون.")
 
     # Eosinophils, Basophils, Monocytes
     if status.get("Eosinophils") == "HIGH":
         insights_ar.append("• ارتفاع Eosinophils: دليل على رد فعل تحسسي أو إصابة بالطفيليات.")
-        insights_en.append("- High Eosinophils: Allergic response or parasitic infestation.")
+        insights_pdf_ar.append("• ارتفاع Eosinophils: دليل على رد فعل تحسسي أو إصابة بالطفيليات.")
     if status.get("Basophils") == "HIGH":
         insights_ar.append("• ارتفاع Basophils: يشير إلى حالات الحساسية المفرطة.")
-        insights_en.append("- High Basophils: Hypersensitivity reactions.")
+        insights_pdf_ar.append("• ارتفاع Basophils: يشير إلى حالات الحساسية المفرطة.")
     if status.get("Monocytes") == "HIGH":
         insights_ar.append("• ارتفاع Monocytes: يشير إلى وجود التهاب مزمن في الجسم.")
-        insights_en.append("- High Monocytes: Chronic inflammation.")
+        insights_pdf_ar.append("• ارتفاع Monocytes: يشير إلى وجود التهاب مزمن في الجسم.")
 
     if not insights_ar:
         insights_ar.append("• كافة المؤشرات تقع ضمن الحدود الطبيعية للفصيلة المحددة.")
-        insights_en.append("- All parameters are within normal reference ranges.")
+        insights_pdf_ar.append("• كافة المؤشرات تقع ضمن الحدود الطبيعية للفصيلة المحددة.")
 
     st.write("---")
     st.markdown("### 📄 Clinical Interpretation / التفسير السريري المعتمد:")
     for ins in insights_ar:
         st.markdown(f"⭐ **{ins}**")
 
-    # إنشاء ملف الـ PDF الطبي بالكامل باللغة الإنجليزية لمنع المربعات تماماً
+    # إنشاء ملف الـ PDF مع الحماية من المربعات وتنسيق الخطوط العربية
     try:
         pdf_buffer = io.BytesIO()
         doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
@@ -295,49 +310,56 @@ if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
         bg_light = colors.HexColor('#f8f9fa')
         bg_alt = colors.HexColor('#f2f4f4')
         
-        title_style = ParagraphStyle(
-            'TitleStyle', 
-            fontName='Helvetica-Bold', 
-            fontSize=20, 
-            textColor=title_color, 
-            spaceAfter=15, 
-            alignment=1
+        # استخدام خط Amiri للغة العربية وتعديل خصائص ParagraphStyle
+        arabic_style_title = ParagraphStyle(
+            'ArabicTitle',
+            fontName='Amiri',
+            fontSize=22,
+            textColor=title_color,
+            alignment=1, # وسط الصفحة
+            spaceAfter=15
         )
         
-        sub_style = ParagraphStyle(
-            'SubStyle', 
-            fontName='Helvetica', 
-            fontSize=11, 
-            spaceAfter=6,
-            leading=14
+        arabic_style_sub = ParagraphStyle(
+            'ArabicSub',
+            fontName='Amiri',
+            fontSize=11,
+            textColor=dark_color,
+            alignment=2, # يمين الصفحة
+            leading=14,
+            spaceAfter=6
         )
         
-        ins_header_style = ParagraphStyle(
-            'InsHeaderStyle',
-            fontName='Helvetica-Bold',
+        arabic_style_body = ParagraphStyle(
+            'ArabicBody',
+            fontName='Amiri',
             fontSize=12,
+            textColor=dark_color,
+            alignment=2, # يمين الصفحة
+            leading=16,
+            spaceAfter=6
+        )
+        
+        arabic_style_header = ParagraphStyle(
+            'ArabicHeader',
+            fontName='Amiri',
+            fontSize=14,
             textColor=green_color,
+            alignment=2, # يمين الصفحة
             spaceBefore=12,
             spaceAfter=6
         )
         
-        ins_style = ParagraphStyle(
-            'InsStyle', 
-            fontName='Helvetica', 
-            fontSize=11, 
-            textColor=dark_color, 
-            spaceAfter=6, 
-            leading=15
-        )
-        
         story = []
-        story.append(Paragraph("AL-HAY VETERINARY CLINIC", title_style))
         
-        meta_info = f"<b>Date:</b> {datetime.date.today().strftime('%Y-%m-%d')} | <b>Owner Name:</b> {owner_name} | <b>Animal ID:</b> {animal_id}"
-        story.append(Paragraph(meta_info, sub_style))
+        # العنوان والبيانات مفروسة باللغة العربية الصحيحة
+        story.append(Paragraph(format_arabic("عيادة الحي البيطرية - AL-HAY VETERINARY CLINIC"), arabic_style_title))
         
-        species_info = f"<b>Species Analyzed:</b> {species}"
-        story.append(Paragraph(species_info, sub_style))
+        meta_info = f"<b>التاريخ:</b> {datetime.date.today().strftime('%Y-%m-%d')} | <b>اسم المربي:</b> {owner_name} | <b>رقم الحيوان:</b> {animal_id}"
+        story.append(Paragraph(format_arabic(meta_info), arabic_style_sub))
+        
+        species_info = f"<b>الفصيلة التي تم تحليلها:</b> {species}"
+        story.append(Paragraph(format_arabic(species_info), arabic_style_sub))
         story.append(Spacer(1, 15))
         
         # الجدول الطبي في ملف الـ PDF
@@ -364,11 +386,11 @@ if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
         story.append(t)
         story.append(Spacer(1, 15))
         
-        story.append(Paragraph("CLINICAL NOTES & INTERPRETATION (ENGLISH):", ins_header_style))
+        story.append(Paragraph(format_arabic("الملاحظات والتفسيرات الطبية:"), arabic_style_header))
         story.append(Spacer(1, 5))
         
-        for ins in insights_en:
-            story.append(Paragraph(ins, ins_style))
+        for ins in insights_pdf_ar:
+            story.append(Paragraph(format_arabic(ins), arabic_style_body))
             
         doc.build(story)
         pdf_data = pdf_buffer.getvalue()
