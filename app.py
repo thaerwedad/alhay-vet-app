@@ -17,11 +17,15 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 import io
 
+# تحميل قارئ النصوص مع إجبار النظام على استخدام المعالج العادي لمنع الانهيار
 @st.cache_resource
 def load_ocr():
-    return easyocr.Reader(['en'])
+    return easyocr.Reader(['en'], gpu=False)
 
-reader = load_ocr()
+try:
+    reader = load_ocr()
+except Exception as e:
+    st.error(f"Error initializing OCR Reader: {e}")
 
 # المسميات البديلة لضمان دقة القراءة التلقائية
 PARAM_ALIASES = {
@@ -90,6 +94,7 @@ st.set_page_config(
     page_icon="🐾",
     layout="wide"
 )
+
 st.title("🐾 Al-Hay Veterinary Clinic")
 st.subheader("Professional Automated CBC Interpretation System")
 
@@ -120,7 +125,7 @@ extracted_data = {param: 0.0 for param in VET_REFERENCE_RANGES[species].keys()}
 
 st.markdown("### 📥 Select Input Method / اختر طريقة الإدخال:")
 
-# توفير الكاميرا والاستوديو معاً عبر نظام تبويبات متزامن ومستقر تماماً 
+# التبويبات لعرض الخيارين معاً وبشكل آمن ومستقل
 tab_gallery, tab_camera = st.tabs([
     "📁 Upload from Gallery (رفع من الاستوديو)", 
     "📸 Use Live Camera (استخدام الكاميرا)"
@@ -145,22 +150,25 @@ with tab_camera:
     if camera_file is not None:
         uploaded_file = camera_file
 
-# معالجة الصورة المرفوعة أو الملتقطة
+# معالجة الصورة في حال تم الرفع أو الالتقاط
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Active Image for Analysis", width=350)
-    
-    with st.spinner("Processing image and scanning data..."):
-        img_np = np.array(image)
-        ocr_results = reader.readtext(img_np, detail=0)
-        ranges = VET_REFERENCE_RANGES[species]
-        for param in ranges.keys():
-            val = extract_param_value_robust(ocr_results, param)
-            if val is not None:
-                extracted_data[param] = val
-            else:
-                extracted_data[param] = 0.0
-    st.success("Data scanned successfully! Review or edit the parameters below:")
+    try:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Active Image for Analysis", width=350)
+        
+        with st.spinner("Processing image and scanning data..."):
+            img_np = np.array(image)
+            ocr_results = reader.readtext(img_np, detail=0)
+            ranges = VET_REFERENCE_RANGES[species]
+            for param in ranges.keys():
+                val = extract_param_value_robust(ocr_results, param)
+                if val is not None:
+                    extracted_data[param] = val
+                else:
+                    extracted_data[param] = 0.0
+        st.success("Data scanned successfully! Review or edit the parameters below:")
+    except Exception as img_err:
+        st.error(f"Error processing image: {img_err}")
 
 st.markdown("### ✏️ Verify and Edit Parameters / مراجعة وتعديل القيم")
 final_data = {}
@@ -179,8 +187,8 @@ for idx, param in enumerate(ranges.keys()):
 
 if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
     status = {}
-    insights_ar = []  # تظهر على شاشة الطبيب بالعربية الفصحى
-    insights_en = []  # تدرج في ملف الـ PDF بالإنجليزية لتجنب تشوه الحروف
+    insights_ar = []  # للظهور على الشاشة باللغة العربية
+    insights_en = []  # للكتابة داخل الـ PDF بالإنجليزية لتجنب المربعات السوداء
     
     for param, val in final_data.items():
         r = ranges[param]
@@ -191,7 +199,7 @@ if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
         else:
             status[param] = "NORMAL"
             
-    # تطبيق الگايد الطبي بالكامل
+    # التحليلات الطبية الذكية
     # RBC
     if status.get("RBC") == "HIGH":
         insights_ar.append("• ارتفاع RBC: قد يشير إلى الجفاف، الاستسقاء، أو أمراض الكلى.")
@@ -271,3 +279,105 @@ if st.button("🧬 Run Deep Clinical Interpretation & Generate PDF"):
         insights_en.append("- All parameters are within normal reference ranges.")
 
     st.write("---")
+    st.markdown("### 📄 Clinical Interpretation / التفسير السريري المعتمد:")
+    for ins in insights_ar:
+        st.markdown(f"⭐ **{ins}**")
+
+    # إنشاء ملف الـ PDF الطبي بالكامل باللغة الإنجليزية لمنع المربعات تماماً
+    try:
+        pdf_buffer = io.BytesIO()
+        doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
+        
+        title_color = colors.HexColor('#c0392b')
+        green_color = colors.HexColor('#27ae60')
+        dark_color = colors.HexColor('#2c3e50')
+        border_color = colors.HexColor('#bdc3c7')
+        bg_light = colors.HexColor('#f8f9fa')
+        bg_alt = colors.HexColor('#f2f4f4')
+        
+        title_style = ParagraphStyle(
+            'TitleStyle', 
+            fontName='Helvetica-Bold', 
+            fontSize=20, 
+            textColor=title_color, 
+            spaceAfter=15, 
+            alignment=1
+        )
+        
+        sub_style = ParagraphStyle(
+            'SubStyle', 
+            fontName='Helvetica', 
+            fontSize=11, 
+            spaceAfter=6,
+            leading=14
+        )
+        
+        ins_header_style = ParagraphStyle(
+            'InsHeaderStyle',
+            fontName='Helvetica-Bold',
+            fontSize=12,
+            textColor=green_color,
+            spaceBefore=12,
+            spaceAfter=6
+        )
+        
+        ins_style = ParagraphStyle(
+            'InsStyle', 
+            fontName='Helvetica', 
+            fontSize=11, 
+            textColor=dark_color, 
+            spaceAfter=6, 
+            leading=15
+        )
+        
+        story = []
+        story.append(Paragraph("AL-HAY VETERINARY CLINIC", title_style))
+        
+        meta_info = f"<b>Date:</b> {datetime.date.today().strftime('%Y-%m-%d')} | <b>Owner Name:</b> {owner_name} | <b>Animal ID:</b> {animal_id}"
+        story.append(Paragraph(meta_info, sub_style))
+        
+        species_info = f"<b>Species Analyzed:</b> {species}"
+        story.append(Paragraph(species_info, sub_style))
+        story.append(Spacer(1, 15))
+        
+        # الجدول الطبي في ملف الـ PDF
+        table_data = [
+            ["Parameter", "Result", "Unit", "Status", "Reference Range"]
+        ]
+        for p, v in final_data.items():
+            r = ranges[p]
+            table_data.append(
+                [p, f"{v:.2f}", r['unit'], status[p], f"{r['min']} - {r['max']}"]
+            )
+            
+        t = Table(table_data, colWidths=[120, 90, 80, 90, 120])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), title_color),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('GRID', (0,0), (-1,-1), 0.5, border_color),
+            ('BACKGROUND', (0,1), (-1,-1), bg_light),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_alt]),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 15))
+        
+        story.append(Paragraph("CLINICAL NOTES & INTERPRETATION (ENGLISH):", ins_header_style))
+        story.append(Spacer(1, 5))
+        
+        for ins in insights_en:
+            story.append(Paragraph(ins, ins_style))
+            
+        doc.build(story)
+        pdf_data = pdf_buffer.getvalue()
+        
+        st.download_button(
+            label="⬇️ Download PDF Report / تحميل التقرير الطبي",
+            data=pdf_data,
+            file_name=f"AlHay_CBC_Report_{animal_id}.pdf",
+            mime="application/pdf"
+        )
+    except Exception as pdf_err:
+        st.error(f"Error generating PDF: {pdf_err}")
