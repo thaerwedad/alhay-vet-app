@@ -1,6 +1,8 @@
 streamlit
+pytesseract
 opencv-python-headless
 numpy
 pillow
-easyocr
 reportlab
+arabic-reshaper
+python-bidi
